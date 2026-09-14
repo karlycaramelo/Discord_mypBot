@@ -1,0 +1,15 @@
+# Secretos: nunca subir al repositorio.
+# Se ignora cualquier variante (.env, .env.local, ...) excepto la plantilla.
+.env
+.env.*
+!.env.example
+
+# Entorno virtual
+.venv/
+
+# Archivos generados por Python
+__pycache__/
+*.pyc
+
+# Archivos del sistema operativo
+.DS_Store
