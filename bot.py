@@ -3,9 +3,9 @@ import logging
 import discord
 from discord import app_commands
 
-from adaptadores import ProveedorFicticio
 from configuracion import Configuracion, ErrorConfiguracion, cargar_configuracion
 from dominio import ErrorProveedorNoDisponible, ErrorTemporalProveedor, ProveedorChat
+from fabricas import crear_proveedor
 
 LIMITE_CARACTERES_PREGUNTA = 500
 LIMITE_CARACTERES_DISCORD = 2000
@@ -19,6 +19,8 @@ class BotDiscord(discord.Client):
         super().__init__(intents=discord.Intents.default())
         self.configuracion = configuracion
         self.proveedor = proveedor
+        # Memoria simple por ejecución: {id de usuario de Discord: consultas usadas}.
+        self.consultas_usadas: dict[int, int] = {}
         self.arbol = app_commands.CommandTree(self)
         self.registrar_comandos()
 
@@ -42,18 +44,20 @@ class BotDiscord(discord.Client):
         registro.info("Bot conectado como %s.", self.user)
 
     async def atender_pregunta(self, interaction: discord.Interaction, mensaje: str) -> None:
-        if len(mensaje) > LIMITE_CARACTERES_PREGUNTA:
-            await interaction.response.send_message(
-                f"Tu pregunta tiene {len(mensaje)} caracteres. "
-                f"El máximo es {LIMITE_CARACTERES_PREGUNTA}.",
-                ephemeral=True,
-            )
+        motivo_rechazo = self.validar_pregunta(interaction, mensaje)
+        if motivo_rechazo is not None:
+            await interaction.response.send_message(motivo_rechazo, ephemeral=True)
             return
+
+        # La consulta se reserva antes del primer await: así, si un usuario envía
+        # varias preguntas al mismo tiempo, no puede rebasar su límite.
+        id_usuario = interaction.user.id
+        self.registrar_consulta(id_usuario)
 
         # defer() avisa a Discord que responderemos después; sin esto la
         # interacción expira si el proveedor tarda más de 3 segundos.
         await interaction.response.defer(thinking=True)
-        respuesta = await self.consultar_proveedor(mensaje)
+        respuesta = await self.consultar_proveedor(id_usuario, mensaje)
 
         # AllowedMentions.none() impide que una respuesta con @everyone notifique a todos.
         await interaction.followup.send(
@@ -61,27 +65,64 @@ class BotDiscord(discord.Client):
             allowed_mentions=discord.AllowedMentions.none(),
         )
 
-    async def consultar_proveedor(self, mensaje: str) -> str:
+    def validar_pregunta(self, interaction: discord.Interaction, mensaje: str) -> str | None:
+        """Regresa el motivo por el que se rechaza la pregunta, o None si es válida."""
+        id_canal = self.configuracion.id_canal
+        if interaction.channel_id != id_canal:
+            return f"Este comando solo funciona en el canal <#{id_canal}>."
+
+        if len(mensaje) > LIMITE_CARACTERES_PREGUNTA:
+            return (
+                f"Tu pregunta tiene {len(mensaje)} caracteres. "
+                f"El máximo es {LIMITE_CARACTERES_PREGUNTA}."
+            )
+
+        limite = self.configuracion.limite_consultas_por_usuario
+        if self.consultas_de(interaction.user.id) >= limite:
+            return (
+                f"Llegaste al límite de consultas ({limite} por persona). "
+                "Se reinicia cuando se reinicie el bot."
+            )
+
+        return None
+
+    def consultas_de(self, id_usuario: int) -> int:
+        return self.consultas_usadas.get(id_usuario, 0)
+
+    def registrar_consulta(self, id_usuario: int) -> None:
+        self.consultas_usadas[id_usuario] = self.consultas_de(id_usuario) + 1
+
+    def devolver_consulta(self, id_usuario: int) -> None:
+        self.consultas_usadas[id_usuario] = self.consultas_de(id_usuario) - 1
+
+    async def consultar_proveedor(self, id_usuario: int, mensaje: str) -> str:
         try:
             return await self.proveedor.responder(mensaje)
-        except ErrorProveedorNoDisponible:
+        except Exception as error:
+            # Si la consulta no se pudo atender, no debe costarle al usuario.
+            self.devolver_consulta(id_usuario)
+            return self.mensaje_de_error(error)
+
+    def mensaje_de_error(self, error: Exception) -> str:
+        if isinstance(error, ErrorProveedorNoDisponible):
             return "El proveedor de respuestas no está disponible en este momento."
-        except ErrorTemporalProveedor:
+        if isinstance(error, ErrorTemporalProveedor):
             return "Ocurrió un error temporal. Intenta de nuevo en unos minutos."
-        except Exception:
-            # La traza se queda en la terminal de quien ejecuta el bot, nunca en Discord.
-            registro.exception("Error inesperado al consultar el proveedor.")
-            return "Ocurrió un error inesperado. Intenta de nuevo más tarde."
+
+        # La traza se queda en la terminal de quien ejecuta el bot, nunca en Discord.
+        registro.error("Error inesperado al consultar el proveedor.", exc_info=error)
+        return "Ocurrió un error inesperado. Intenta de nuevo más tarde."
 
 
 def main() -> None:
     try:
         configuracion = cargar_configuracion()
+        proveedor = crear_proveedor(configuracion)
     except ErrorConfiguracion as error:
         print(f"Error de configuración: {error}")
         raise SystemExit(1)
 
-    proveedor = ProveedorFicticio()
+    print(f"Proveedor de respuestas: {configuracion.proveedor_chat}")
     bot = BotDiscord(configuracion, proveedor)
 
     try:
