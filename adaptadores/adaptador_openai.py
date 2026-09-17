@@ -26,6 +26,8 @@ INSTRUCCIONES = (
 )
 
 # Errores que no se arreglan reintentando: clave inválida, modelo inexistente, etc.
+# Clases de error tomadas de la tabla oficial del SDK:
+# https://github.com/openai/openai-python/blob/v3.13.0/README.md#handling-errors
 ERRORES_NO_DISPONIBLE = (
     openai.AuthenticationError,
     openai.PermissionDeniedError,
@@ -43,6 +45,9 @@ class AdaptadorOpenAI(ProveedorChat):
     sus parámetros, la forma de su respuesta y sus excepciones.
     """
 
+    # Adaptado del ejemplo oficial "Async usage" del SDK; timeout y max_retries vienen de
+    # las secciones "Timeouts" y "Retries" del mismo README:
+    # https://github.com/openai/openai-python/blob/v3.13.0/README.md#async-usage
     def __init__(self, clave_api: str, modelo: str) -> None:
         self._cliente = AsyncOpenAI(
             api_key=clave_api,
@@ -51,6 +56,10 @@ class AdaptadorOpenAI(ProveedorChat):
         )
         self._modelo = modelo
 
+    # responses.create(model, instructions, input) y output_text están adaptados del ejemplo
+    # oficial "Usage": https://github.com/openai/openai-python/blob/v3.13.0/README.md#usage
+    # max_output_tokens, store e incomplete_details: referencia de la API
+    # https://developers.openai.com/api/reference/resources/responses/methods/create
     async def responder(self, mensaje: str) -> str:
         try:
             respuesta = await self._cliente.responses.create(

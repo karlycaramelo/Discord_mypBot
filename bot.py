@@ -13,6 +13,8 @@ LIMITE_CARACTERES_DISCORD = 2000
 registro = logging.getLogger(__name__)
 
 
+# Adaptado del ejemplo oficial de discord.py (Client + CommandTree + setup_hook + sync):
+# https://github.com/Rapptz/discord.py/blob/v2.7.1/examples/app_commands/basic.py
 class BotDiscord(discord.Client):
     # El bot recibe un ProveedorChat ya construido: no sabe si es ficticio o real.
     def __init__(self, configuracion: Configuracion, proveedor: ProveedorChat) -> None:
@@ -46,6 +48,8 @@ class BotDiscord(discord.Client):
     async def atender_pregunta(self, interaction: discord.Interaction, mensaje: str) -> None:
         motivo_rechazo = self.validar_pregunta(interaction, mensaje)
         if motivo_rechazo is not None:
+            # ephemeral=True: solo quien usó el comando ve el mensaje. Referencia:
+            # https://discordpy.readthedocs.io/en/v2.7.1/interactions/api.html#discord.InteractionResponse.send_message
             await interaction.response.send_message(motivo_rechazo, ephemeral=True)
             return
 
@@ -56,10 +60,14 @@ class BotDiscord(discord.Client):
 
         # defer() avisa a Discord que responderemos después; sin esto la
         # interacción expira si el proveedor tarda más de 3 segundos.
+        # Referencias: https://docs.discord.com/developers/interactions/receiving-and-responding
+        # https://discordpy.readthedocs.io/en/v2.7.1/interactions/api.html#discord.InteractionResponse.defer
         await interaction.response.defer(thinking=True)
         respuesta = await self.consultar_proveedor(id_usuario, mensaje)
 
         # AllowedMentions.none() impide que una respuesta con @everyone notifique a todos.
+        # Referencias: https://discordpy.readthedocs.io/en/v2.7.1/interactions/api.html#discord.Interaction.followup
+        # https://discordpy.readthedocs.io/en/v2.7.1/api.html#discord.AllowedMentions.none
         await interaction.followup.send(
             respuesta[:LIMITE_CARACTERES_DISCORD],
             allowed_mentions=discord.AllowedMentions.none(),
@@ -125,6 +133,8 @@ def main() -> None:
     print(f"Proveedor de respuestas: {configuracion.proveedor_chat}")
     bot = BotDiscord(configuracion, proveedor)
 
+    # Referencias: https://discordpy.readthedocs.io/en/v2.7.1/api.html#discord.Client.run
+    # https://discordpy.readthedocs.io/en/v2.7.1/api.html#discord.LoginFailure
     try:
         bot.run(configuracion.token_discord, root_logger=True)
     except discord.LoginFailure:

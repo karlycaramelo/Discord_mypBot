@@ -56,6 +56,7 @@ def leer_limite_consultas() -> int:
 
 def cargar_configuracion() -> Configuracion:
     # Las variables ya definidas en el sistema tienen prioridad sobre el archivo .env.
+    # Referencia: https://github.com/theskumar/python-dotenv/blob/v1.2.3/README.md#getting-started
     load_dotenv(RUTA_ENV)
 
     id_canal = convertir_id("DISCORD_CHANNEL_ID", leer_obligatorio("DISCORD_CHANNEL_ID"))
